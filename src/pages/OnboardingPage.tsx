@@ -49,10 +49,23 @@ export function OnboardingPage() {
     setSubmitting(true)
     setErrorMsg(null)
 
+    // Fetch the *current* server-validated user instead of trusting React state.
+    // This avoids stale-session RLS failures when the client has an outdated
+    // JWT (e.g. after a deleted-user / re-signup cycle during development).
+    const { data: fresh, error: freshErr } = await supabase.auth.getUser()
+    if (freshErr || !fresh.user) {
+      setErrorMsg(
+        'Your session is stale — sign out and sign in again, then retry.'
+      )
+      setSubmitting(false)
+      return
+    }
+    const userId = fresh.user.id
+
     // 1. Create family.
     const { data: family, error: famErr } = await supabase
       .from('families')
-      .insert({ name: familyName.trim(), created_by: user.id })
+      .insert({ name: familyName.trim(), created_by: userId })
       .select('id')
       .single()
     if (famErr || !family) {
@@ -64,7 +77,7 @@ export function OnboardingPage() {
     // 2. Add self as owner — must happen before inserting teacher (RLS).
     const { error: memErr } = await supabase.from('family_members').insert({
       family_id: family.id,
-      user_id: user.id,
+      user_id: userId,
       role: 'owner',
     })
     if (memErr) {
