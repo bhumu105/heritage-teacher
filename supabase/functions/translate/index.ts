@@ -10,11 +10,21 @@ const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
 const MODEL = 'claude-haiku-4-5-20251001'
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+}
+
 interface Body {
   lesson_id: string
 }
 
 serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS_HEADERS })
+  }
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
   let body: Body
   try {
@@ -83,6 +93,6 @@ ${lesson.transcript}
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
   })
 }
