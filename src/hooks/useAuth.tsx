@@ -19,6 +19,14 @@ interface AuthState {
   familyId: string | null
   loading: boolean
   signInWithEmail: (email: string) => Promise<{ error: Error | null }>
+  signInWithPassword: (
+    email: string,
+    password: string
+  ) => Promise<{ error: Error | null }>
+  signUpWithPassword: (
+    email: string,
+    password: string
+  ) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   /** Re-runs the family lookup — call after onboarding completes. */
   refreshFamily: () => Promise<void>
@@ -86,6 +94,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null }
   }, [])
 
+  const signInWithPassword = useCallback(
+    async (email: string, password: string) => {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      return { error: error as Error | null }
+    },
+    []
+  )
+
+  const signUpWithPassword = useCallback(
+    async (email: string, password: string) => {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        // In Supabase with "Confirm email" OFF, this immediately creates a usable
+        // session. We still set the redirect in case confirmations ever re-enable.
+        options: { emailRedirectTo: window.location.origin },
+      })
+      return { error: error as Error | null }
+    },
+    []
+  )
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
   }, [])
@@ -105,6 +135,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         familyId,
         loading,
         signInWithEmail,
+        signInWithPassword,
+        signUpWithPassword,
         signOut,
         refreshFamily,
       }}
