@@ -67,6 +67,28 @@ export async function attachLessonAudio(
 }
 
 /**
+ * supabase-js surfaces non-2xx responses as FunctionsHttpError and throws
+ * away the JSON body by default. Our Edge Functions put a structured
+ * `{ error, detail }` payload in the body, so we try hard to dig it back
+ * out for display.
+ */
+async function extractFunctionErrorBody(err: unknown): Promise<string> {
+  if (!err) return 'unknown'
+  if (typeof err !== 'object') return String(err)
+  const maybeContext = (err as { context?: unknown }).context
+  if (maybeContext && typeof (maybeContext as Response).text === 'function') {
+    try {
+      const text = await (maybeContext as Response).clone().text()
+      if (text) return text
+    } catch {
+      // fall through to message
+    }
+  }
+  const message = (err as { message?: string }).message
+  return message ?? JSON.stringify(err)
+}
+
+/**
  * Triggers the transcribe Edge Function — which in turn writes the lessons
  * row and flips session.status to 'ready'. Returns the transcript on success.
  */
@@ -80,7 +102,10 @@ export async function invokeTranscribe(sessionId: UUID): Promise<{
     transcript: string
     language_code: string
   }>('transcribe', { body: { session_id: sessionId } })
-  if (error) return { lessonId: null, transcript: null, error: error.message }
+  if (error) {
+    const body = await extractFunctionErrorBody(error)
+    return { lessonId: null, transcript: null, error: body }
+  }
   return {
     lessonId: data?.lesson_id ?? null,
     transcript: data?.transcript ?? null,
@@ -100,7 +125,10 @@ export async function invokeTranslate(lessonId: UUID): Promise<{
     lesson_id: string
     translation: string
   }>('translate', { body: { lesson_id: lessonId } })
-  if (error) return { translation: null, error: error.message }
+  if (error) {
+    const body = await extractFunctionErrorBody(error)
+    return { translation: null, error: body }
+  }
   return { translation: data?.translation ?? null, error: null }
 }
 
