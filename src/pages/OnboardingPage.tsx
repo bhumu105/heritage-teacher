@@ -49,18 +49,26 @@ export function OnboardingPage() {
     setSubmitting(true)
     setErrorMsg(null)
 
-    // Fetch the *current* server-validated user instead of trusting React state.
-    // This avoids stale-session RLS failures when the client has an outdated
-    // JWT (e.g. after a deleted-user / re-signup cycle during development).
-    const { data: fresh, error: freshErr } = await supabase.auth.getUser()
-    if (freshErr || !fresh.user) {
+    // Fetch current session + user directly from Supabase (not React state).
+    const [{ data: sessionData }, { data: fresh, error: freshErr }] =
+      await Promise.all([supabase.auth.getSession(), supabase.auth.getUser()])
+
+    const sessionPresent = !!sessionData.session
+    const jwtUserId = sessionData.session?.user?.id ?? null
+    const verifiedUserId = fresh.user?.id ?? null
+
+    if (freshErr || !verifiedUserId) {
       setErrorMsg(
-        'Your session is stale — sign out and sign in again, then retry.'
+        `Session check failed. ` +
+          `session=${sessionPresent ? 'present' : 'MISSING'} ` +
+          `reactUserId=${user?.id ?? 'null'} ` +
+          `error=${freshErr?.message ?? 'no user returned'}`
       )
       setSubmitting(false)
       return
     }
-    const userId = fresh.user.id
+
+    const userId = verifiedUserId
 
     // 1. Create family.
     const { data: family, error: famErr } = await supabase
@@ -69,7 +77,15 @@ export function OnboardingPage() {
       .select('id')
       .single()
     if (famErr || !family) {
-      setErrorMsg(famErr?.message ?? 'Could not create family')
+      setErrorMsg(
+        `Insert families failed. ` +
+          `code=${famErr?.code ?? '?'} ` +
+          `msg=${famErr?.message ?? '?'} ` +
+          `sessionPresent=${sessionPresent} ` +
+          `jwtUserId=${jwtUserId} ` +
+          `verifiedUserId=${verifiedUserId} ` +
+          `reactUserId=${user?.id ?? 'null'}`
+      )
       setSubmitting(false)
       return
     }
