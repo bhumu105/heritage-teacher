@@ -1,5 +1,5 @@
-// MediaRecorder helpers. iOS Safari prefers 'audio/mp4'; desktop + Android
-// Chrome prefer 'audio/webm;codecs=opus'. We pick the first supported.
+// MediaRecorder + WebAudio helpers. iOS Safari prefers 'audio/mp4'; desktop
+// and Android Chrome prefer 'audio/webm;codecs=opus'. Pick the first supported.
 
 const PREFERRED_MIME_TYPES = [
   'audio/webm;codecs=opus',
@@ -43,4 +43,57 @@ export async function requestMicrophone(): Promise<MediaStream> {
 
 export function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((t) => t.stop())
+}
+
+/**
+ * Attach an RMS-level meter to a live MediaStream. Returns a disposer that
+ * stops the rAF loop + tears down the AudioContext. The callback fires at
+ * animation-frame rate with a normalised 0..1 level (visual purposes only,
+ * not calibrated).
+ */
+export function createLevelMeter(
+  stream: MediaStream,
+  onLevel: (level: number) => void
+): () => void {
+  const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AudioCtx) {
+    // Gracefully no-op on ancient browsers — recording still works, meter just stays flat.
+    return () => {}
+  }
+  const ctx = new AudioCtx()
+  const source = ctx.createMediaStreamSource(stream)
+  const analyser = ctx.createAnalyser()
+  analyser.fftSize = 512
+  analyser.smoothingTimeConstant = 0.6
+  source.connect(analyser)
+
+  const buffer = new Uint8Array(analyser.fftSize)
+  let raf = 0
+  let stopped = false
+
+  const tick = () => {
+    if (stopped) return
+    analyser.getByteTimeDomainData(buffer)
+    // Compute RMS of the waveform around the 128 midpoint.
+    let sumSquares = 0
+    for (let i = 0; i < buffer.length; i++) {
+      const v = (buffer[i] - 128) / 128
+      sumSquares += v * v
+    }
+    const rms = Math.sqrt(sumSquares / buffer.length)
+    // Visual polish: compress the dynamic range so quiet-room noise doesn't
+    // look identical to actually-speaking volume.
+    const level = Math.min(1, rms * 2.2)
+    onLevel(level)
+    raf = requestAnimationFrame(tick)
+  }
+  raf = requestAnimationFrame(tick)
+
+  return () => {
+    stopped = true
+    cancelAnimationFrame(raf)
+    source.disconnect()
+    analyser.disconnect()
+    void ctx.close()
+  }
 }
