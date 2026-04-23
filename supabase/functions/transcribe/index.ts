@@ -49,6 +49,16 @@ serve(async (req) => {
   if (!session.raw_audio_uri) return json({ error: 'no_audio' }, 400)
   if (!session.consent_clip_uri) return json({ error: 'missing_consent_clip' }, 403)
 
+  // 1b. Load the teacher so we can tell Whisper which language to expect.
+  // Auto-detection is unreliable on short clips and on lower-resource languages
+  // like Slovene — Whisper has mis-tagged real Slovene as Latin in the wild.
+  const { data: teacher } = await admin
+    .from('teachers')
+    .select('native_language')
+    .eq('id', session.teacher_id)
+    .maybeSingle()
+  const declaredLanguage = teacher?.native_language?.toLowerCase() ?? null
+
   // 2. Verify there's an active 'record' consent for this teacher.
   const { data: consents } = await admin
     .from('consent_records')
@@ -80,6 +90,11 @@ serve(async (req) => {
   form.append('file', audioBlob, 'audio.webm')
   form.append('model', 'whisper-1')
   form.append('response_format', 'verbose_json')
+  // Pinning the language forces Whisper to decode assuming e.g. Slovene
+  // phonemes instead of guessing Latin/Italian/etc. on short clips.
+  if (declaredLanguage) {
+    form.append('language', declaredLanguage)
+  }
   const whisperResp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
@@ -96,13 +111,16 @@ serve(async (req) => {
   }
 
   // 5. Write the lesson, mark session ready.
+  // Prefer the teacher-declared language over Whisper's detection — the
+  // declaration is the source of truth, and translate/extract-note both
+  // read language_code back out.
   const { data: lesson, error: lErr } = await admin
     .from('lessons')
     .insert({
       session_id: session.id,
       family_id: session.family_id,
       transcript: whisper.text,
-      language_code: whisper.language ?? 'unknown',
+      language_code: declaredLanguage ?? whisper.language ?? 'unknown',
     })
     .select()
     .single()
