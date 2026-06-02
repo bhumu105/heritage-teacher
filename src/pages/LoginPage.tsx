@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
+import { PENDING_INVITE_KEY } from '@/lib/invites'
 
 type Mode = 'password' | 'magic'
 type Status = 'idle' | 'working' | 'sent' | 'error'
@@ -30,8 +31,19 @@ export function LoginPage() {
   const [status, setStatus] = useState<Status>('idle')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  // Snapshot once on mount — refreshing this between renders would only matter
+  // if the key changed while the user stared at the form, which doesn't happen.
+  const [pendingInvite] = useState(() =>
+    sessionStorage.getItem(PENDING_INVITE_KEY)
+  )
+
   if (loading) return null
-  if (user) return <Navigate to="/library" replace />
+  if (user) {
+    // If the user arrived via /join/:code while signed out, JoinPage stashed
+    // the code here so we can return them after authentication. JoinPage
+    // clears the key once redemption succeeds.
+    return <Navigate to={pendingInvite ? `/join/${pendingInvite}` : '/library'} replace />
+  }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -89,6 +101,16 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          {pendingInvite && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">You've been invited to join a family.</p>
+              <p className="mt-1 text-xs">
+                Sign in or create an account to continue — we'll add you to the
+                family library as soon as you're signed in.
+              </p>
+            </div>
+          )}
+
           {/* Mode switcher */}
           <div className="flex gap-2 text-xs">
             <button

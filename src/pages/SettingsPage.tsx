@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, LogOut, Save, Trash2 } from 'lucide-react'
+import { formatDistanceToNowStrict } from 'date-fns'
+import { ArrowLeft, Copy, LogOut, Plus, Save, Trash2, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -16,13 +17,19 @@ import { DeleteConfirm } from '@/components/DeleteConfirm'
 import { useAuth } from '@/hooks/useAuth'
 import { useTeacher } from '@/hooks/useTeacher'
 import {
+  createInvite,
+  inviteUrl,
+  listOpenInvites,
+} from '@/lib/invites'
+import { listFamilyMembers, removeFamilyMember } from '@/lib/members'
+import {
   deleteFamily,
-  fetchFamilyName,
+  fetchFamily,
   grantConsent,
   renameFamily,
   revokeConsent,
 } from '@/lib/settings'
-import type { ConsentScope } from '@/lib/types'
+import type { ConsentScope, FamilyInvite, FamilyMember } from '@/lib/types'
 
 const SCOPES: { key: ConsentScope; label: string; help: string }[] = [
   {
@@ -64,18 +71,51 @@ export function SettingsPage() {
   const [togglingScope, setTogglingScope] = useState<ConsentScope | null>(null)
   const [scopeError, setScopeError] = useState<string | null>(null)
 
+  const [familyOwnerId, setFamilyOwnerId] = useState<string | null>(null)
+  const isOwner = !!user?.id && user.id === familyOwnerId
+
+  const [invites, setInvites] = useState<FamilyInvite[]>([])
+  const [creatingInvite, setCreatingInvite] = useState(false)
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
+
+  const [members, setMembers] = useState<FamilyMember[]>([])
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null)
+  const [memberMsg, setMemberMsg] = useState<string | null>(null)
+
+  const refreshInvites = useCallback(async () => {
+    if (!familyId) return
+    const rows = await listOpenInvites(familyId)
+    setInvites(rows)
+  }, [familyId])
+
+  const refreshMembers = useCallback(async () => {
+    if (!familyId) return
+    const rows = await listFamilyMembers(familyId)
+    setMembers(rows)
+  }, [familyId])
+
   useEffect(() => {
     let active = true
     if (!familyId) return
-    fetchFamilyName(familyId).then((name) => {
+    fetchFamily(familyId).then((fam) => {
       if (!active) return
-      setFamilyName(name ?? '')
-      setFamilyNameDraft(name ?? '')
+      setFamilyName(fam?.name ?? '')
+      setFamilyNameDraft(fam?.name ?? '')
+      setFamilyOwnerId(fam?.created_by ?? null)
     })
     return () => {
       active = false
     }
   }, [familyId])
+
+  useEffect(() => {
+    void refreshInvites()
+  }, [refreshInvites])
+
+  useEffect(() => {
+    void refreshMembers()
+  }, [refreshMembers])
 
   async function handleSignOut() {
     await signOut()
@@ -109,6 +149,55 @@ export function SettingsPage() {
     if (err) setScopeError(err)
     await refreshTeacher()
     setTogglingScope(null)
+  }
+
+  async function copyInviteLink(code: string) {
+    try {
+      await navigator.clipboard.writeText(inviteUrl(code))
+      setCopiedCode(code)
+      setInviteMsg('Link copied — share it with your relative.')
+    } catch {
+      setInviteMsg(`Couldn’t copy — link: ${inviteUrl(code)}`)
+    }
+  }
+
+  async function handleCreateInvite() {
+    if (!familyId || !user?.id || creatingInvite) return
+    setCreatingInvite(true)
+    setInviteMsg(null)
+    const result = await createInvite(familyId, user.id)
+    if ('error' in result) {
+      // RLS rejects non-owners — surface a friendlier message in that case.
+      const isPermission = /row-level security|permission|policy/i.test(result.error)
+      setInviteMsg(
+        isPermission
+          ? 'Only the family owner can create invites.'
+          : `Couldn’t create invite: ${result.error}`
+      )
+      setCreatingInvite(false)
+      return
+    }
+    await refreshInvites()
+    await copyInviteLink(result.invite.code)
+    setCreatingInvite(false)
+  }
+
+  async function handleRemoveMember(userId: string): Promise<string | null> {
+    if (!familyId || !isOwner) return 'Not allowed.'
+    if (userId === user?.id) return "You can't remove yourself."
+    setRemovingUserId(userId)
+    setMemberMsg(null)
+    const err = await removeFamilyMember(familyId, userId)
+    setRemovingUserId(null)
+    if (err) {
+      const isPermission = /row-level security|permission|policy/i.test(err)
+      return isPermission
+        ? 'Only the family owner can remove members.'
+        : `Couldn’t remove member: ${err}`
+    }
+    await refreshMembers()
+    setMemberMsg('Member removed.')
+    return null
   }
 
   async function handleDeleteFamily(): Promise<string | null> {
@@ -178,6 +267,128 @@ export function SettingsPage() {
               {savingFamily ? 'Saving…' : 'Save'}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Invites */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Invite family members</CardTitle>
+          <CardDescription>
+            Share the link with a relative — opening it adds them to this family.
+            Links expire in 7 days and each one only works once.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {invites.length > 0 ? (
+            <ul className="space-y-2">
+              {invites.map((inv) => (
+                <li
+                  key={inv.code}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-mono">{inv.code.slice(0, 8)}…</p>
+                    <p className="text-xs text-muted-foreground">
+                      Expires in{' '}
+                      {formatDistanceToNowStrict(new Date(inv.expires_at))}
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => copyInviteLink(inv.code)}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    {copiedCode === inv.code ? 'Copied' : 'Copy link'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No active invites. Create one to share with a relative.
+            </p>
+          )}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">{inviteMsg ?? ''}</p>
+            <Button
+              onClick={handleCreateInvite}
+              disabled={!familyId || creatingInvite}
+              size="sm"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {creatingInvite ? 'Creating…' : 'Create invite'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Members */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Family members</CardTitle>
+          <CardDescription>
+            Everyone who can see this library.
+            {isOwner ? ' As the owner you can remove anyone except yourself.' : ''}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {members.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Loading members…</p>
+          ) : (
+            <ul className="space-y-2">
+              {members.map((m) => {
+                const isSelf = m.user_id === user?.id
+                const removable = isOwner && !isSelf
+                const pending = removingUserId === m.user_id
+                return (
+                  <li
+                    key={m.user_id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        {m.role === 'owner' ? 'Owner' : 'Member'}
+                        {isSelf && (
+                          <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                            you
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Joined{' '}
+                        {formatDistanceToNowStrict(new Date(m.added_at), {
+                          addSuffix: true,
+                        })}
+                      </p>
+                    </div>
+                    {removable && (
+                      <DeleteConfirm
+                        trigger={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={pending}
+                          >
+                            <UserMinus className="mr-2 h-4 w-4" />
+                            {pending ? 'Removing…' : 'Remove'}
+                          </Button>
+                        }
+                        title="Remove this member?"
+                        description="They'll lose access to every lesson in this family. You can re-invite them later."
+                        confirmWord="remove"
+                        onConfirm={() => handleRemoveMember(m.user_id)}
+                      />
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {memberMsg && (
+            <p className="text-xs text-muted-foreground">{memberMsg}</p>
+          )}
         </CardContent>
       </Card>
 

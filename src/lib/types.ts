@@ -71,6 +71,16 @@ export interface Lesson {
   deleted_at: string | null
 }
 
+export interface FamilyInvite {
+  code: string
+  family_id: UUID
+  created_by: UUID
+  created_at: string
+  expires_at: string
+  consumed_by: UUID | null
+  consumed_at: string | null
+}
+
 // Narrow database shape — expand as Supabase codegen matures.
 // The Supabase client is typed to <Database>; missing tables surface as errors.
 export interface Database {
@@ -102,9 +112,19 @@ export interface Database {
         Insert: Partial<Lesson>
         Update: Partial<Lesson>
       }
+      family_invites: {
+        Row: FamilyInvite
+        Insert: Partial<FamilyInvite>
+        Update: Partial<FamilyInvite>
+      }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      consume_family_invite: {
+        Args: { invite_code: string }
+        Returns: UUID
+      }
+    }
     Enums: Record<string, never>
   }
 }

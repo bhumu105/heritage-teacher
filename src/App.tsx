@@ -7,6 +7,7 @@ import { RecordPage } from '@/pages/RecordPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { LessonDetailPage } from '@/pages/LessonDetailPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { JoinPage } from '@/pages/JoinPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/library" replace />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/join/:code" element={<JoinPage />} />
           <Route
             path="/onboarding"
             element={

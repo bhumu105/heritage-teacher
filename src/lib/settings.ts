@@ -1,14 +1,27 @@
 import { supabase } from '@/lib/supabase'
 import type { ConsentScope, UUID } from '@/lib/types'
 
-export async function fetchFamilyName(familyId: UUID): Promise<string | null> {
+export interface FamilySummary {
+  name: string
+  created_by: UUID
+}
+
+export async function fetchFamily(
+  familyId: UUID
+): Promise<FamilySummary | null> {
   const { data, error } = await supabase
     .from('families')
-    .select('name')
+    .select('name, created_by')
     .eq('id', familyId)
     .maybeSingle()
   if (error || !data) return null
-  return data.name
+  return { name: data.name, created_by: data.created_by }
+}
+
+/** @deprecated use fetchFamily — left for any direct call sites. */
+export async function fetchFamilyName(familyId: UUID): Promise<string | null> {
+  const f = await fetchFamily(familyId)
+  return f?.name ?? null
 }
 
 export async function renameFamily(
