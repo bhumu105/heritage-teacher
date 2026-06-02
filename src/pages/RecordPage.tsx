@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { ConsentClipPrompt } from '@/components/ConsentClipPrompt'
 import { LessonCapture } from '@/components/LessonCapture'
 import { RecordingStatus, type StatusStep } from '@/components/RecordingStatus'
@@ -9,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useTeacher } from '@/hooks/useTeacher'
 import type { RecordingResult } from '@/hooks/useRecording'
 import { supabase } from '@/lib/supabase'
+import { grantRecordConsentFromPaperForm } from '@/lib/consents'
 import {
   attachConsentClip,
   attachLessonAudio,
@@ -57,6 +60,7 @@ export function RecordPage() {
     teacher,
     has: hasConsent,
     error: teacherError,
+    refresh: refreshTeacher,
   } = useTeacher(familyId)
 
   const [phase, setPhase] = useState<Phase>('loading')
@@ -66,6 +70,9 @@ export function RecordPage() {
   const [translation, setTranslation] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [paperFormAttested, setPaperFormAttested] = useState(false)
+  const [grantingConsent, setGrantingConsent] = useState(false)
+  const [consentError, setConsentError] = useState<string | null>(null)
 
   // Decide the next phase once the teacher + consents load.
   if (phase === 'loading' && !loadingTeacher) {
@@ -190,6 +197,22 @@ export function RecordPage() {
     setUploading(false)
   }
 
+  async function confirmRecordConsent() {
+    if (!teacher || grantingConsent) return
+    setGrantingConsent(true)
+    setConsentError(null)
+    const err = await grantRecordConsentFromPaperForm(teacher.id)
+    if (err) {
+      setConsentError(err)
+      setGrantingConsent(false)
+      return
+    }
+    await refreshTeacher()
+    setGrantingConsent(false)
+    setPaperFormAttested(false)
+    setPhase('needs-consent-clip')
+  }
+
   function startAnother() {
     setSessionId(null)
     setTranscript(null)
@@ -209,20 +232,62 @@ export function RecordPage() {
   }
 
   if (phase === 'no-record-consent') {
+    const teacherName = teacher?.display_name ?? 'this teacher'
     return (
       <div className="mx-auto max-w-2xl p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Consent not granted</CardTitle>
+            <CardTitle>Consent required before recording</CardTitle>
             <CardDescription>
-              The "record" consent scope hasn't been granted for {teacher?.display_name ?? 'this teacher'}.
-              Go back to onboarding to grant it, or ask the family owner.
+              Recording is blocked until we have a signed paper consent form on
+              file for {teacherName}. The template lives at{' '}
+              <a
+                href="/consent-form-template.md"
+                className="underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                /consent-form-template.md
+              </a>
+              . Print it, have {teacherName} sign it, keep the paper, then
+              attest below.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button asChild>
-              <Link to="/library">Back to library</Link>
-            </Button>
+          <CardContent className="space-y-4">
+            <label className="flex items-start gap-3 rounded-md border border-border p-3">
+              <Checkbox
+                checked={paperFormAttested}
+                disabled={grantingConsent}
+                onCheckedChange={(v) => setPaperFormAttested(v === true)}
+                className="mt-0.5"
+                id="attest"
+              />
+              <div className="min-w-0 flex-1">
+                <Label htmlFor="attest" className="text-sm font-medium">
+                  I confirm a signed paper consent form for {teacherName} is on
+                  file.
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  This logs an attestation under your account. You can revoke
+                  it any time from Settings.
+                </p>
+              </div>
+            </label>
+            {consentError && (
+              <p className="text-sm text-red-600">{consentError}</p>
+            )}
+            <div className="flex gap-3">
+              <Button
+                onClick={confirmRecordConsent}
+                disabled={!paperFormAttested || grantingConsent}
+                className="flex-1"
+              >
+                {grantingConsent ? 'Saving…' : 'Confirm and continue'}
+              </Button>
+              <Button asChild variant="outline" className="flex-1">
+                <Link to="/library">Back to library</Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

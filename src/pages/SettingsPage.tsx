@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { formatDistanceToNowStrict } from 'date-fns'
+import { format, formatDistanceToNowStrict } from 'date-fns'
 import { ArrowLeft, Copy, LogOut, Plus, Save, Trash2, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +21,7 @@ import {
   inviteUrl,
   listOpenInvites,
 } from '@/lib/invites'
+import { listActiveConsents } from '@/lib/consents'
 import { listFamilyMembers, removeFamilyMember } from '@/lib/members'
 import {
   deleteFamily,
@@ -29,7 +30,18 @@ import {
   renameFamily,
   revokeConsent,
 } from '@/lib/settings'
-import type { ConsentScope, FamilyInvite, FamilyMember } from '@/lib/types'
+import type {
+  ConsentRecord,
+  ConsentScope,
+  FamilyInvite,
+  FamilyMember,
+} from '@/lib/types'
+
+const GRANTED_VIA_LABEL: Record<ConsentRecord['granted_via'], string> = {
+  'paper-signed': 'Paper form on file',
+  'verbal-clip': 'Verbal clip',
+  'app-checkbox': 'In-app checkbox',
+}
 
 const SCOPES: { key: ConsentScope; label: string; help: string }[] = [
   {
@@ -83,6 +95,10 @@ export function SettingsPage() {
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [memberMsg, setMemberMsg] = useState<string | null>(null)
 
+  const [consentByScope, setConsentByScope] = useState<
+    Partial<Record<ConsentScope, ConsentRecord>>
+  >({})
+
   const refreshInvites = useCallback(async () => {
     if (!familyId) return
     const rows = await listOpenInvites(familyId)
@@ -94,6 +110,21 @@ export function SettingsPage() {
     const rows = await listFamilyMembers(familyId)
     setMembers(rows)
   }, [familyId])
+
+  const refreshConsents = useCallback(async () => {
+    if (!teacher) {
+      setConsentByScope({})
+      return
+    }
+    const rows = await listActiveConsents(teacher.id)
+    // listActiveConsents orders newest-first; reduce keeps the freshest row
+    // per scope when historical duplicates exist.
+    const byScope: Partial<Record<ConsentScope, ConsentRecord>> = {}
+    for (const row of rows) {
+      if (!byScope[row.scope]) byScope[row.scope] = row
+    }
+    setConsentByScope(byScope)
+  }, [teacher])
 
   useEffect(() => {
     let active = true
@@ -116,6 +147,10 @@ export function SettingsPage() {
   useEffect(() => {
     void refreshMembers()
   }, [refreshMembers])
+
+  useEffect(() => {
+    void refreshConsents()
+  }, [refreshConsents])
 
   async function handleSignOut() {
     await signOut()
@@ -148,6 +183,7 @@ export function SettingsPage() {
       : await revokeConsent(teacher.id, scope)
     if (err) setScopeError(err)
     await refreshTeacher()
+    await refreshConsents()
     setTogglingScope(null)
   }
 
@@ -403,11 +439,25 @@ export function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div
+            className={`rounded-md border p-3 text-sm ${
+              activeScopes.has('record')
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}
+          >
+            {activeScopes.has('record')
+              ? `Recording is allowed for ${teacher?.display_name ?? 'this teacher'}.`
+              : `Recording is blocked — no active "record" consent on file for ${
+                  teacher?.display_name ?? 'this teacher'
+                }.`}
+          </div>
           <p className="text-sm font-medium">Consent scopes</p>
           <div className="space-y-3">
             {SCOPES.map(({ key, label, help }) => {
               const active = activeScopes.has(key)
               const pending = togglingScope === key
+              const row = consentByScope[key]
               return (
                 <label
                   key={key}
@@ -422,6 +472,15 @@ export function SettingsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">
                       {label}
+                      <span
+                        className={`ml-2 rounded px-1.5 py-0.5 text-xs ${
+                          active
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {active ? 'Signed' : 'Pending'}
+                      </span>
                       {pending && (
                         <span className="ml-2 text-xs text-muted-foreground">
                           updating…
@@ -429,6 +488,12 @@ export function SettingsPage() {
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground">{help}</p>
+                    {active && row && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {GRANTED_VIA_LABEL[row.granted_via]} ·{' '}
+                        {format(new Date(row.granted_at), 'MMM d, yyyy')}
+                      </p>
+                    )}
                   </div>
                 </label>
               )
