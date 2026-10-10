@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, Square } from 'lucide-react'
+import { Loader2, Mic, Square } from 'lucide-react'
+import { formatSeconds } from '@/lib/format'
 
 interface RecordButtonProps {
-  /** Called after the user presses (and passes the initial press threshold). */
+  /** Called when the user taps to start. */
   onStart: () => void | Promise<void>
-  /** Called after the user releases. */
+  /** Called when the user taps again to stop (or maxSeconds is reached). */
   onStop: () => void | Promise<void>
   /** Render a disabled button — used while uploading / transcribing. */
   disabled?: boolean
@@ -12,16 +13,15 @@ interface RecordButtonProps {
   isRecording: boolean
   /** 0..1 live mic level from useRecording — drives the pulsing ring. */
   level?: number
-  /** Ignored if undefined; otherwise auto-stops when elapsed seconds exceed this. */
+  /** Ignored if undefined; otherwise auto-stops when elapsed seconds reach this. */
   maxSeconds?: number
-  /** Live counter label, e.g. "12s" while recording. */
-  elapsedLabel?: string
 }
 
 /**
- * Big round press-and-hold capture button. Holding = recording; release =
- * stop. A 200ms press threshold guards against accidental taps. Pulses
- * gently with the live input level.
+ * Big round tap-to-toggle capture button. Tap once to start, tap again to
+ * stop — no holding, so a grandparent can tell a five-minute story without
+ * someone keeping a finger on the screen. Pulses with the live input level
+ * and shows a running timer.
  */
 export function RecordButton({
   onStart,
@@ -30,100 +30,98 @@ export function RecordButton({
   isRecording,
   level = 0,
   maxSeconds,
-  elapsedLabel,
 }: RecordButtonProps) {
-  const [holding, setHolding] = useState(false)
-  const pressTimerRef = useRef<number | null>(null)
-  const startedAtRef = useRef<number>(0)
-  const maxTimerRef = useRef<number | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const onStopRef = useRef(onStop)
 
   useEffect(() => {
-    return () => {
-      if (pressTimerRef.current) window.clearTimeout(pressTimerRef.current)
-      if (maxTimerRef.current) window.clearTimeout(maxTimerRef.current)
-    }
-  }, [])
+    onStopRef.current = onStop
+  })
 
-  function handlePressStart(e: React.PointerEvent<HTMLButtonElement>) {
-    if (disabled || isRecording) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    setHolding(true)
-    startedAtRef.current = Date.now()
-    pressTimerRef.current = window.setTimeout(() => {
-      void onStart()
-      if (maxSeconds) {
-        maxTimerRef.current = window.setTimeout(() => {
-          void onStop()
-          setHolding(false)
-        }, maxSeconds * 1000)
+  useEffect(() => {
+    if (!isRecording) return
+    const startedAt = Date.now()
+    let stopped = false
+    const id = window.setInterval(() => {
+      const sec = Math.floor((Date.now() - startedAt) / 1000)
+      setElapsed(sec)
+      if (maxSeconds && sec >= maxSeconds && !stopped) {
+        stopped = true
+        void onStopRef.current()
       }
-    }, 200)
-  }
+    }, 250)
+    return () => window.clearInterval(id)
+  }, [isRecording, maxSeconds])
 
-  function handlePressEnd() {
-    if (pressTimerRef.current) {
-      window.clearTimeout(pressTimerRef.current)
-      pressTimerRef.current = null
+  async function handleClick() {
+    if (disabled || busy) return
+    setBusy(true)
+    try {
+      if (isRecording) {
+        await onStop()
+      } else {
+        setElapsed(0)
+        await onStart()
+      }
+    } finally {
+      setBusy(false)
     }
-    if (maxTimerRef.current) {
-      window.clearTimeout(maxTimerRef.current)
-      maxTimerRef.current = null
-    }
-    if (isRecording) {
-      void onStop()
-    }
-    setHolding(false)
   }
 
   // Scale the outer pulsing ring with the live input level; feels alive.
-  const ringScale = isRecording ? 1 + level * 0.35 : 1
+  const ringScale = isRecording ? 1.08 + level * 0.4 : 1
+  const shownElapsed = isRecording ? elapsed : 0
 
   return (
     <div className="flex flex-col items-center gap-4">
       <button
         type="button"
-        disabled={disabled}
-        onPointerDown={handlePressStart}
-        onPointerUp={handlePressEnd}
-        onPointerCancel={handlePressEnd}
-        onPointerLeave={(e) => {
-          // If the finger/cursor slips off while holding, treat as release
-          // so we never leave a dangling "still recording" state.
-          if (holding) handlePressEnd()
-          // Release pointer capture on leave to avoid ghost events.
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId)
-          }
-        }}
+        disabled={disabled || (busy && !isRecording)}
+        onClick={handleClick}
         className={
-          'relative flex h-32 w-32 select-none items-center justify-center rounded-full transition-all duration-100 ' +
+          'relative flex h-36 w-36 select-none items-center justify-center rounded-full transition-all duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40 ' +
           (disabled
             ? 'cursor-not-allowed bg-muted text-muted-foreground'
             : isRecording
-              ? 'bg-red-600 text-white shadow-lg'
-              : 'bg-primary text-primary-foreground hover:scale-105 active:scale-95')
+              ? 'bg-red-600 text-white shadow-xl'
+              : 'bg-accent text-accent-foreground shadow-lg hover:scale-105 active:scale-95')
         }
-        aria-label={isRecording ? 'Release to stop' : 'Press and hold to record'}
+        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
       >
-        {/* Pulsing outer ring when recording */}
         {isRecording && (
           <span
             aria-hidden
-            className="absolute inset-0 rounded-full bg-red-500/40"
+            className="absolute inset-0 rounded-full bg-red-500/30"
             style={{ transform: `scale(${ringScale})`, transition: 'transform 75ms ease-out' }}
           />
         )}
         <span className="relative">
-          {isRecording ? <Square className="h-10 w-10" fill="white" /> : <Mic className="h-10 w-10" />}
+          {busy && !isRecording ? (
+            <Loader2 className="h-12 w-12 animate-spin" />
+          ) : isRecording ? (
+            <Square className="h-11 w-11" fill="white" />
+          ) : (
+            <Mic className="h-12 w-12" />
+          )}
         </span>
       </button>
-      <p className="text-sm text-muted-foreground">
-        {isRecording
-          ? elapsedLabel
-            ? `Recording — ${elapsedLabel}. Release to stop.`
-            : 'Recording — release to stop.'
-          : 'Press and hold to record'}
-      </p>
+
+      {isRecording ? (
+        <div className="text-center">
+          <p className="font-mono text-2xl font-semibold tabular-nums text-red-600">
+            {formatSeconds(shownElapsed)}
+            {maxSeconds ? (
+              <span className="text-base font-normal text-muted-foreground">
+                {' '}/ {formatSeconds(maxSeconds)}
+              </span>
+            ) : null}
+          </p>
+          <p className="text-sm text-muted-foreground">Tap the button again when finished</p>
+        </div>
+      ) : (
+        <p className="text-base font-medium text-muted-foreground">Tap to start recording</p>
+      )}
     </div>
   )
 }

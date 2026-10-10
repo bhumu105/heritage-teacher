@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { format, formatDistanceToNowStrict } from 'date-fns'
-import { ArrowLeft, Copy, LogOut, Plus, Save, Trash2, UserMinus } from 'lucide-react'
+import { Copy, LogOut, Plus, Save, Trash2, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -22,6 +22,7 @@ import {
   listOpenInvites,
 } from '@/lib/invites'
 import { listActiveConsents } from '@/lib/consents'
+import { languageLabel } from '@/lib/languages'
 import { listFamilyMembers, removeFamilyMember } from '@/lib/members'
 import {
   deleteFamily,
@@ -248,63 +249,13 @@ export function SettingsPage() {
   const familyDirty = familyNameDraft.trim() !== familyName && familyNameDraft.trim().length > 0
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <header className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/library">
-            <ArrowLeft className="mr-2 h-4 w-4" /> Library
-          </Link>
-        </Button>
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <div className="w-20" /> {/* spacer to center title */}
+    <div className="mx-auto max-w-2xl space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold">Family settings</h1>
+        <p className="mt-1 text-muted-foreground">
+          Invite relatives, manage consent, and update your account.
+        </p>
       </header>
-
-      {/* Account */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>{user?.email ?? 'Loading…'}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={handleSignOut} variant="outline">
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Family */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Family</CardTitle>
-          <CardDescription>
-            The name shown at the top of the library.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-2">
-            <Label htmlFor="familyName">Family name</Label>
-            <Input
-              id="familyName"
-              value={familyNameDraft}
-              onChange={(e) => setFamilyNameDraft(e.target.value)}
-              disabled={savingFamily}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              {familyMsg ?? (familyDirty ? 'Unsaved changes.' : 'Up to date.')}
-            </p>
-            <Button
-              onClick={handleFamilyRename}
-              disabled={!familyDirty || savingFamily}
-              size="sm"
-            >
-              <Save className="mr-2 h-4 w-4" />
-              {savingFamily ? 'Saving…' : 'Save'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Invites */}
       <Card>
@@ -435,15 +386,15 @@ export function SettingsPage() {
             {teacher?.display_name ?? (loadingTeacher ? 'Loading teacher…' : 'No teacher')}
           </CardTitle>
           <CardDescription>
-            Language code: {teacher?.native_language?.toUpperCase() ?? '—'}
+            Teaches {teacher ? languageLabel(teacher.native_language) : '—'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div
             className={`rounded-md border p-3 text-sm ${
               activeScopes.has('record')
-                ? 'border-green-200 bg-green-50 text-green-800'
-                : 'border-amber-200 bg-amber-50 text-amber-800'
+                ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200'
+                : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200'
             }`}
           >
             {activeScopes.has('record')
@@ -500,6 +451,53 @@ export function SettingsPage() {
             })}
           </div>
           {scopeError && <p className="text-sm text-red-600">{scopeError}</p>}
+        </CardContent>
+      </Card>
+
+      {/* Family */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Family</CardTitle>
+          <CardDescription>
+            The name shown at the top of the library.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="familyName">Family name</Label>
+            <Input
+              id="familyName"
+              value={familyNameDraft}
+              onChange={(e) => setFamilyNameDraft(e.target.value)}
+              disabled={savingFamily}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {familyMsg ?? (familyDirty ? 'Unsaved changes.' : 'Up to date.')}
+            </p>
+            <Button
+              onClick={handleFamilyRename}
+              disabled={!familyDirty || savingFamily}
+              size="sm"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {savingFamily ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Account */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>{user?.email ?? 'Loading…'}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleSignOut} variant="outline">
+            <LogOut className="mr-2 h-4 w-4" /> Sign out
+          </Button>
         </CardContent>
       </Card>
 

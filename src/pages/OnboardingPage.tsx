@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
+import { LANGUAGES } from '@/lib/languages'
 import { supabase } from '@/lib/supabase'
 
 /**
@@ -27,10 +28,13 @@ export function OnboardingPage() {
 
   const [familyName, setFamilyName] = useState('')
   const [teacherName, setTeacherName] = useState('')
-  const [language, setLanguage] = useState('')
+  const [languageChoice, setLanguageChoice] = useState('')
+  const [customLanguage, setCustomLanguage] = useState('')
   const [consent, setConsent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  const language = languageChoice === 'other' ? customLanguage : languageChoice
 
   if (loading) return null
   if (!user) return <Navigate to="/login" replace />
@@ -136,10 +140,10 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
+    <div className="mx-auto max-w-2xl p-4 py-8 sm:p-6 sm:py-12">
       <Card>
         <CardHeader>
-          <CardTitle>Set up your family</CardTitle>
+          <CardTitle className="text-2xl">Set up your family</CardTitle>
           <CardDescription>
             Create a private space for your grandparent's lessons. Only people you
             invite will ever see recordings.
@@ -178,24 +182,44 @@ export function OnboardingPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="language">Native language (ISO 639-1 code)</Label>
-              <Input
+              <Label htmlFor="language">Which language do they speak?</Label>
+              <select
                 id="language"
                 required
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                maxLength={5}
-                placeholder="sl"
+                value={languageChoice}
+                onChange={(e) => setLanguageChoice(e.target.value)}
                 disabled={submitting}
-              />
-              <p className="text-xs text-muted-foreground">
-                Examples: <code>sl</code> Slovene · <code>de</code> German ·{' '}
-                <code>fr</code> French · <code>uk</code> Ukrainian ·{' '}
-                <code>tl</code> Tagalog.
-              </p>
+                className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                <option value="" disabled>
+                  Choose a language…
+                </option>
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+                <option value="other">Another language…</option>
+              </select>
+              {languageChoice === 'other' && (
+                <>
+                  <Input
+                    aria-label="Language code"
+                    value={customLanguage}
+                    onChange={(e) => setCustomLanguage(e.target.value)}
+                    maxLength={5}
+                    placeholder="Two-letter code, e.g. sq for Albanian"
+                    disabled={submitting}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use the two-letter ISO 639-1 code so transcription knows
+                    which language to listen for.
+                  </p>
+                </>
+              )}
             </div>
 
-            <div className="space-y-3 rounded-md border border-border p-4">
+            <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4">
               <p className="text-sm font-medium">Consent acknowledgement</p>
               <p className="text-sm text-muted-foreground">
                 I've spoken with my grandparent and they understand their voice
@@ -216,7 +240,7 @@ export function OnboardingPage() {
               </label>
             </div>
 
-            <Button type="submit" className="w-full" disabled={!canSubmit}>
+            <Button type="submit" size="lg" className="w-full" disabled={!canSubmit}>
               {submitting ? 'Setting up…' : 'Create family'}
             </Button>
 

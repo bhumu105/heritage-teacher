@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { Mic } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -94,15 +95,18 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Heritage Teacher</CardTitle>
-          <CardDescription>
-            A private lesson keepsake for your family.
+        <CardHeader className="items-center text-center">
+          <span className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground">
+            <Mic className="h-6 w-6" />
+          </span>
+          <CardTitle className="text-3xl">Heritage Teacher</CardTitle>
+          <CardDescription className="text-base">
+            Keep your grandparent's voice, words and stories for the whole family.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {pendingInvite && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               <p className="font-medium">You've been invited to join a family.</p>
               <p className="mt-1 text-xs">
                 Sign in or create an account to continue — we'll add you to the
@@ -112,7 +116,7 @@ export function LoginPage() {
           )}
 
           {/* Mode switcher */}
-          <div className="flex gap-2 text-xs">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 text-sm">
             <button
               type="button"
               onClick={() => {
@@ -120,13 +124,13 @@ export function LoginPage() {
                 setStatus('idle')
                 setErrorMsg(null)
               }}
-              className={`rounded-md border px-3 py-1 transition ${
+              className={`rounded-lg px-3 py-2 font-medium transition ${
                 mode === 'password'
-                  ? 'border-primary text-primary'
-                  : 'border-border text-muted-foreground'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Email + password
+              Password
             </button>
             <button
               type="button"
@@ -135,13 +139,13 @@ export function LoginPage() {
                 setStatus('idle')
                 setErrorMsg(null)
               }}
-              className={`rounded-md border px-3 py-1 transition ${
+              className={`rounded-lg px-3 py-2 font-medium transition ${
                 mode === 'magic'
-                  ? 'border-primary text-primary'
-                  : 'border-border text-muted-foreground'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Magic link
+              Email me a link
             </button>
           </div>
 
@@ -193,6 +197,7 @@ export function LoginPage() {
 
               <Button
                 type="submit"
+                size="lg"
                 className="w-full"
                 disabled={
                   status === 'working' ||

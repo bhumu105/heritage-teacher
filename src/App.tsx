@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from '@/hooks/useAuth'
+import { AppShell } from '@/components/AppShell'
 import { RequireAuth } from '@/components/RequireAuth'
 import { LoginPage } from '@/pages/LoginPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
@@ -26,37 +27,17 @@ export default function App() {
             }
           />
           <Route
-            path="/record"
             element={
               <RequireAuth>
-                <RecordPage />
+                <AppShell />
               </RequireAuth>
             }
-          />
-          <Route
-            path="/library"
-            element={
-              <RequireAuth>
-                <LibraryPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/lessons/:id"
-            element={
-              <RequireAuth>
-                <LessonDetailPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <RequireAuth>
-                <SettingsPage />
-              </RequireAuth>
-            }
-          />
+          >
+            <Route path="/record" element={<RecordPage />} />
+            <Route path="/library" element={<LibraryPage />} />
+            <Route path="/lessons/:id" element={<LessonDetailPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Routes>
       </BrowserRouter>
     </AuthProvider>

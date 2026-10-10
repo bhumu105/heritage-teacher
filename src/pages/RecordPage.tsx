@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight, Check, FileText, Loader2, Mic } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,6 +13,7 @@ import { useTeacher } from '@/hooks/useTeacher'
 import type { RecordingResult } from '@/hooks/useRecording'
 import { supabase } from '@/lib/supabase'
 import { grantRecordConsentFromPaperForm } from '@/lib/consents'
+import { languageLabel } from '@/lib/languages'
 import {
   attachConsentClip,
   attachLessonAudio,
@@ -20,6 +22,7 @@ import {
   invokeTranslate,
   uploadToRecordings,
 } from '@/lib/recording'
+import { cn } from '@/lib/utils'
 import type { UUID } from '@/lib/types'
 
 type Phase =
@@ -31,25 +34,47 @@ type Phase =
   | 'done'
   | 'error'
 
-const LANGUAGE_NAMES: Record<string, string> = {
-  sl: 'Slovene',
-  de: 'German',
-  fr: 'French',
-  uk: 'Ukrainian',
-  tl: 'Tagalog',
-  es: 'Spanish',
-  it: 'Italian',
-  hr: 'Croatian',
-  sr: 'Serbian',
-  pl: 'Polish',
-  ru: 'Russian',
-  hu: 'Hungarian',
-  pt: 'Portuguese',
+const STEPS = ['Permission', 'Lesson', 'Saved'] as const
+
+function stepIndex(phase: Phase): number {
+  if (phase === 'needs-consent-clip') return 0
+  if (phase === 'ready-to-record') return 1
+  return 2
 }
 
-function languageLabel(code: string): string {
-  const lower = code.toLowerCase()
-  return LANGUAGE_NAMES[lower] ?? code.toUpperCase()
+function Stepper({ phase }: { phase: Phase }) {
+  const current = stepIndex(phase)
+  return (
+    <ol className="flex items-center gap-2" aria-label="Progress">
+      {STEPS.map((label, i) => {
+        const done = i < current || phase === 'done'
+        const active = i === current && phase !== 'done'
+        return (
+          <li key={label} className="flex flex-1 items-center gap-2">
+            <span
+              className={cn(
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                done && 'bg-green-600 text-white',
+                active && 'bg-accent text-accent-foreground',
+                !done && !active && 'bg-muted text-muted-foreground'
+              )}
+            >
+              {done ? <Check className="h-4 w-4" /> : i + 1}
+            </span>
+            <span
+              className={cn(
+                'text-sm',
+                active ? 'font-medium' : 'text-muted-foreground'
+              )}
+            >
+              {label}
+            </span>
+            {i < STEPS.length - 1 && <span className="h-px flex-1 bg-border" />}
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 export function RecordPage() {
@@ -65,6 +90,7 @@ export function RecordPage() {
 
   const [phase, setPhase] = useState<Phase>('loading')
   const [sessionId, setSessionId] = useState<UUID | null>(null)
+  const [lessonId, setLessonId] = useState<UUID | null>(null)
   const [statusStep, setStatusStep] = useState<StatusStep>('uploading')
   const [transcript, setTranscript] = useState<string | null>(null)
   const [translation, setTranslation] = useState<string | null>(null)
@@ -171,27 +197,26 @@ export function RecordPage() {
 
     // 2. Transcribe (server-side Whisper).
     setStatusStep('transcribing')
-    const { lessonId, transcript: tx, error: txErr } = await invokeTranscribe(sessionId)
-    if (txErr || !lessonId) {
+    const { lessonId: newLessonId, transcript: tx, error: txErr } = await invokeTranscribe(sessionId)
+    if (txErr || !newLessonId) {
       setErrorMsg(`Transcription failed: ${txErr ?? 'no lesson id returned'}`)
       setPhase('error')
       setUploading(false)
       return
     }
+    setLessonId(newLessonId)
     setTranscript(tx ?? '')
 
     // 3. Translate (server-side Claude) — fire and await; cheap enough we don't
     //    background it.
     setStatusStep('translating')
-    const { translation: tr, error: trErr } = await invokeTranslate(lessonId)
+    const { translation: tr, error: trErr } = await invokeTranslate(newLessonId)
     if (trErr) {
       // Transcript still counts as a successful capture; surface as soft error.
-      setErrorMsg(`Translation failed, but transcript saved: ${trErr}`)
-      setStatusStep('done')
-      setUploading(false)
-      return
+      setErrorMsg(`Translation failed, but the transcript was saved: ${trErr}`)
+    } else {
+      setTranslation(tr ?? '')
     }
-    setTranslation(tr ?? '')
     setStatusStep('done')
     setPhase('done')
     setUploading(false)
@@ -215,6 +240,7 @@ export function RecordPage() {
 
   function startAnother() {
     setSessionId(null)
+    setLessonId(null)
     setTranscript(null)
     setTranslation(null)
     setErrorMsg(null)
@@ -225,69 +251,61 @@ export function RecordPage() {
   // ----- Render -----
   if (phase === 'loading' || loadingTeacher) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading…
+      <div className="flex items-center justify-center gap-2 py-24 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" /> Loading…
       </div>
     )
   }
 
+  const teacherName = teacher?.display_name ?? 'your grandparent'
+
   if (phase === 'no-record-consent') {
-    const teacherName = teacher?.display_name ?? 'this teacher'
     return (
-      <div className="mx-auto max-w-2xl p-6">
+      <div className="mx-auto max-w-2xl">
         <Card>
           <CardHeader>
-            <CardTitle>Consent required before recording</CardTitle>
-            <CardDescription>
-              Recording is blocked until we have a signed paper consent form on
-              file for {teacherName}. The template lives at{' '}
-              <a
-                href="/consent-form-template.md"
-                className="underline"
-                target="_blank"
-                rel="noreferrer"
-              >
-                /consent-form-template.md
-              </a>
-              . Print it, have {teacherName} sign it, keep the paper, then
-              attest below.
+            <CardTitle>One thing before recording</CardTitle>
+            <CardDescription className="text-base">
+              We need to know {teacherName} has signed a paper consent form.
+              Print the form, have them sign it, and keep the paper somewhere
+              safe. Then tick the box below.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-start gap-3 rounded-md border border-border p-3">
+            <Button asChild variant="outline" className="w-full sm:w-auto">
+              <a href="/consent-form-template.md" target="_blank" rel="noreferrer">
+                <FileText /> Open the consent form
+              </a>
+            </Button>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-4">
               <Checkbox
                 checked={paperFormAttested}
                 disabled={grantingConsent}
                 onCheckedChange={(v) => setPaperFormAttested(v === true)}
-                className="mt-0.5"
+                className="mt-0.5 size-5"
                 id="attest"
               />
               <div className="min-w-0 flex-1">
-                <Label htmlFor="attest" className="text-sm font-medium">
-                  I confirm a signed paper consent form for {teacherName} is on
-                  file.
+                <Label htmlFor="attest" className="text-base font-medium">
+                  {teacherName} has signed the paper form, and I have it.
                 </Label>
-                <p className="text-xs text-muted-foreground">
-                  This logs an attestation under your account. You can revoke
-                  it any time from Settings.
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This saves your confirmation under your account. The form
+                  itself isn't uploaded. You can undo this any time in
+                  Family settings.
                 </p>
               </div>
             </label>
-            {consentError && (
-              <p className="text-sm text-red-600">{consentError}</p>
-            )}
-            <div className="flex gap-3">
-              <Button
-                onClick={confirmRecordConsent}
-                disabled={!paperFormAttested || grantingConsent}
-                className="flex-1"
-              >
-                {grantingConsent ? 'Saving…' : 'Confirm and continue'}
-              </Button>
-              <Button asChild variant="outline" className="flex-1">
-                <Link to="/library">Back to library</Link>
-              </Button>
-            </div>
+            {consentError && <p className="text-sm text-red-600">{consentError}</p>}
+            <Button
+              onClick={confirmRecordConsent}
+              disabled={!paperFormAttested || grantingConsent}
+              size="lg"
+              className="w-full"
+            >
+              {grantingConsent ? 'Saving…' : 'Continue to recording'}
+              {!grantingConsent && <ArrowRight />}
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -295,21 +313,17 @@ export function RecordPage() {
   }
 
   const langName = languageLabel(teacher?.native_language ?? '')
-  const teacherName = teacher?.display_name ?? 'your grandparent'
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Record a lesson</h1>
-          <p className="text-sm text-muted-foreground">
-            {teacherName} · {langName}
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/library">Back to library</Link>
-        </Button>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold">Record a lesson</h1>
+        <p className="mt-1 text-muted-foreground">
+          {teacherName} · {langName}
+        </p>
       </header>
+
+      {phase !== 'error' && <Stepper phase={phase} />}
 
       {phase === 'needs-consent-clip' && (
         <ConsentClipPrompt
@@ -336,12 +350,16 @@ export function RecordPage() {
             errorMsg={errorMsg}
           />
           {phase === 'done' && (
-            <div className="flex gap-3">
-              <Button onClick={startAnother} className="flex-1">
-                Record another
-              </Button>
-              <Button asChild variant="outline" className="flex-1">
-                <Link to="/library">Back to library</Link>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {lessonId && (
+                <Button asChild size="lg" className="flex-1">
+                  <Link to={`/lessons/${lessonId}`}>
+                    Open the lesson <ArrowRight />
+                  </Link>
+                </Button>
+              )}
+              <Button onClick={startAnother} size="lg" variant="outline" className="flex-1">
+                <Mic /> Record another
               </Button>
             </div>
           )}
@@ -351,11 +369,16 @@ export function RecordPage() {
       {phase === 'error' && (
         <Card>
           <CardHeader>
-            <CardTitle>Recording failed</CardTitle>
-            <CardDescription>{errorMsg}</CardDescription>
+            <CardTitle>Something went wrong</CardTitle>
+            <CardDescription className="text-base">{errorMsg}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={() => navigate(0)}>Try again</Button>
+          <CardContent className="flex flex-col gap-3 sm:flex-row">
+            <Button onClick={() => navigate(0)} size="lg">
+              Try again
+            </Button>
+            <Button asChild variant="outline" size="lg">
+              <Link to="/library">Back to lessons</Link>
+            </Button>
           </CardContent>
         </Card>
       )}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Loader2, Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { LessonCard } from '@/components/LessonCard'
 import type { Lesson } from '@/lib/types'
@@ -19,6 +20,7 @@ function matches(lesson: Lesson, needle: string): boolean {
     lesson.transcript,
     lesson.translation ?? '',
     lesson.title ?? '',
+    lesson.cultural_note ?? '',
   ]
     .join(' ')
     .toLowerCase()
@@ -35,7 +37,7 @@ export function LibraryGrid({ lessons, loading, error }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
         Could not load lessons: {error}
       </div>
     )
@@ -43,19 +45,19 @@ export function LibraryGrid({ lessons, loading, error }: Props) {
 
   if (loading && lessons.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        Loading lessons…
+      <p className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading lessons…
       </p>
     )
   }
 
   if (lessons.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border p-8 text-center">
-        <p className="text-sm font-medium">No lessons yet</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Tap <span className="font-medium">Record</span> to capture your first
-          one. It'll appear here as soon as the transcript is ready.
+      <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+        <p className="font-heading text-xl font-semibold">No lessons yet</p>
+        <p className="mx-auto mt-2 max-w-sm text-muted-foreground">
+          Your first recording will show up here with a written transcript and
+          an English translation.
         </p>
       </div>
     )
@@ -63,16 +65,39 @@ export function LibraryGrid({ lessons, loading, error }: Props) {
 
   return (
     <div className="space-y-4">
-      <Input
-        placeholder="Search lessons…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        aria-label="Search lessons"
-      />
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">All lessons</h2>
+        {query && (
+          <p className="text-sm text-muted-foreground">
+            {filtered.length} of {lessons.length}
+          </p>
+        )}
+      </div>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search words, phrases or translations…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search lessons"
+          className="h-12 rounded-xl bg-card pl-10 pr-10 text-base"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
       {filtered.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          No lessons match "{query}".
+        <p className="py-8 text-center text-muted-foreground">
+          Nothing matches “{query}”.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
